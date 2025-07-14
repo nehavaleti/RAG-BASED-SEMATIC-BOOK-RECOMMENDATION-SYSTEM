@@ -1,0 +1,153 @@
+import pandas as pd
+import numpy as np
+import openai
+from dotenv import load_dotenv
+from openai import OpenAI
+
+from langchain_community.document_loaders import TextLoader
+from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_chroma import Chroma
+
+import gradio as gr
+
+load_dotenv()
+
+books = pd.read_csv("books_with_emotions.csv")
+books["large_thumbnail"] = books["thumbnail"] + "&fife=w880"
+books["large_thumbnail"] = np.where(
+    books["large_thumbnail"].isna(),
+    "cover_not_found.jpg",
+    books["large_thumbnail"],
+)
+
+raw_documents = TextLoader("tagged_description.txt", encoding="utf-8").load()
+text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separator="\n")
+documents = text_splitter.split_documents(raw_documents)
+db_books = Chroma.from_documents(documents, OpenAIEmbeddings())
+
+def retrieve_semantic_recommendations(
+        query: str,
+        category: str = None,
+        tone: str = None,
+        initial_top_k: int = 50,
+        final_top_k: int = 16,
+) -> pd.DataFrame:
+    recs = db_books.similarity_search(query, k=initial_top_k)
+
+    books_list = []
+    for rec in recs:
+        try:
+            first_token = rec.page_content.strip('"').split()[0].rstrip(":")
+            book_id = int(first_token)
+            books_list.append(book_id)
+        except (IndexError, ValueError) as e:
+            print(f"[WARNING] Skipping rec: '{rec.page_content}' - Error: {e}")
+
+    book_recs = books[books["isbn13"].isin(books_list)]
+
+    if category != "All" and category is not None:
+        book_recs = book_recs[book_recs["simple_categories"] == category]
+
+    book_recs = book_recs.head(final_top_k)
+
+    if tone == "Happy":
+        book_recs = book_recs.sort_values(by="joy", ascending=False)
+    elif tone == "Surprising":
+        book_recs = book_recs.sort_values(by="surprise", ascending=False)
+    elif tone == "Angry":
+        book_recs = book_recs.sort_values(by="anger", ascending=False)
+    elif tone == "Suspenseful":
+        book_recs = book_recs.sort_values(by="fear", ascending=False)
+    elif tone == "Sad":
+        book_recs = book_recs.sort_values(by="sadness", ascending=False)
+
+    return book_recs
+
+
+
+def recommend_books(
+        query: str,
+        category: str,
+        tone: str
+):
+    recommendations = retrieve_semantic_recommendations(query, category, tone)
+    results = []
+
+    #step 1: Building context for GPT
+    context = ""
+    for _, row in recommendations.iterrows():
+        title = row["title"]
+        author = row["authors"].split(";")[0]
+        desc = row["description"]
+        context += f"Title: {title}\nAuthor: {author}\nDescription: {desc}\n\n"
+
+    # Step 2: Build the GPT prompt
+    prompt = f"""You are a book expert.
+
+Based on the following book descriptions:
+{context}
+The user is looking for a book like: "{query}"
+Suggest 3 good matches from the list above. For each, explain briefly why its a good fit
+"""
+    client = OpenAI()
+    # Step 3: Call GPT
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+        max_tokens=500
+    )
+
+    generated_summary = response.choices[0].message.content
+
+    #Step 4: Build thumbnail results
+    for _, row in recommendations.iterrows():
+        description= row["description"]
+        truncated_desc_split = description.split()
+        truncated_description = " ".join(truncated_desc_split[:30]) + "...."
+
+        authors_split = row["authors"].split(";")
+        if len(authors_split) == 2:
+            authors_str = f"{authors_split[0]} and {authors_split[1]}"
+        elif len(authors_split) > 2:
+            authors_str = f"{', '.join(authors_split[:-1])}, and {authors_split[-1]}"
+        else:
+            authors_str = row["authors"]
+
+        caption = f"{row['title']} by {authors_str}: {truncated_description}"
+        results.append((row["large_thumbnail"], caption))
+    return generated_summary, results
+
+categories = ["All"] + sorted(books["simple_categories"]. unique())
+tones = ["All" ] + ["Happy", "Surprising", "Angry", "Suspenseful", "Sad"]
+
+
+with gr.Blocks(theme=gr.themes.Ocean()) as dashboard:
+    gr.Markdown("# Semantic Book Recommender")
+
+    with gr.Row():
+        user_query = gr.Textbox(label ="Please enter a description of a book:", placeholder="e.g., A story about success")
+        category_dropdown = gr.Dropdown(choices=categories, label="Select a category", value = "All")
+        tone_dropdown = gr.Dropdown(choices=tones, label="Slect an emotional tone", value = "All")
+        submit_button = gr.Button("Find Recommendations")
+
+    gr.Markdown("##  Why These Books?")
+    explanation_output = gr.Markdown()
+
+    gr.Markdown("## Top Book Covers")
+    gallery_output = gr.Gallery(label = "Recommended Books", columns = 8, rows=2)
+
+    submit_button.click(
+        fn=recommend_books,
+        inputs=[user_query, category_dropdown, tone_dropdown],
+        outputs=[explanation_output, gallery_output]
+    )
+
+
+
+
+if __name__ == "__main__":
+    dashboard.launch()
+
+
