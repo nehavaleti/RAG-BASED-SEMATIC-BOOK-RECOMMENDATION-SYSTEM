@@ -1,18 +1,11 @@
 # Ignore environment variable files
 .env
-
-# Ignore notebooks checkpoints
-*.ipynb_checkpoints/
-
-# Ignore compiled files
+.ipynb_checkpoints/
 __pycache__/
-
-# Ignore data and logs
-*.csv
-*.log
-*.sqlite
-*.db
-
-# IDE files (optional)
+.csv
+.log
+.sqlite
+.db
+IDE files (optional)
 .idea/
 .vscode/

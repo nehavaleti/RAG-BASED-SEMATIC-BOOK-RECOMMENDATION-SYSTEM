@@ -148,6 +148,7 @@ with gr.Blocks(theme=gr.themes.Ocean()) as dashboard:
 
 
 if __name__ == "__main__":
-    dashboard.launch()
+   dashboard.launch()
+
 
 
