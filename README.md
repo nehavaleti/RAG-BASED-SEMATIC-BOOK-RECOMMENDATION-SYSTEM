@@ -6,4 +6,4 @@
 
 ---
 
-![Demo](./assets/demo.png)
+![Demo](./assets/PROJECT IMAGE.jpeg)
