@@ -1,4 +1,4 @@
-# 📚 LLM-Powered Personalized Book Recommendation Engine
+# 📚 RAG-BASED SEMANTIC BOOK RECOMENDATION SYSTEM
 ![Python](https://img.shields.io/badge/Python-3.10-blue)
 ![LLM](https://img.shields.io/badge/LLM-GPT4-green)
 ![RAG](https://img.shields.io/badge/Architecture-RAG-orange)
